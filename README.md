@@ -1,4 +1,8 @@
-# Infinite Canvas
+# Infinite Canvas#
+
+Try it here:
+
+https://sdw3690.github.io/Infinite-canvas/
 
 A lightweight infinite drawing canvas built with HTML5 Canvas and JavaScript.
 
