@@ -1,0 +1,205 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Infinite Canvas - Eraser Support</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #f0f0f0;
+            width: 100%;
+            height: 100%;
+            overscroll-behavior: none;
+        }
+
+        /*画布样式*/
+        canvas {
+            display: block;
+            background: white;
+            touch-action: none;
+            cursor: crosshair; /*  让鼠标变为十字准星，将来该材质可能在这改*/
+        }
+        /*工具栏样式*/
+        #toolbar {
+            position: fixed;
+            right: 20px; /*距离右边 20px*/
+            top: 50%; /*垂直居中*/
+            transform: translateY(-50%);
+            background: rgba(255,255,255,0.95);
+            padding: 14px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            font-family: sans-serif;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="canvas"></canvas>
+
+    <div id="toolbar">
+        <label>模式:</label>
+        <select id="toolSelect">
+            <option value="brush">画笔 🖌️</option>
+            <option value="eraser">橡皮 🧽</option>
+        </select>
+
+        <label>颜色:</label>
+        <input type="color" id="colorPicker" value="#000000">
+
+        <label>粗细:</label>
+        <input type="range" id="sizeSlider" min="1" max="50" value="2">
+
+        <hr>
+        <small style="color: #666">右键: 平移画布</small>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        let strokes = [];
+        let currentStroke = null;
+        let scale = 1;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        let currentColor = "#000000";
+        let currentSize = 2;
+        let currentTool = "brush"; // 【新增：记录当前选择的工具】
+
+        // 1. 适配屏幕大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            draw();
+        }
+        window.addEventListener("resize", resize);
+
+        // 2. 工具栏监听
+        document.getElementById("colorPicker").oninput = (e) => currentColor = e.target.value;
+        document.getElementById("sizeSlider").oninput = (e) => currentSize = parseInt(e.target.value);
+        // 【新增：监听工具切换】
+        document.getElementById("toolSelect").onchange = (e) => currentTool = e.target.value;
+
+        // 3. 坐标转换
+        function screenToWorld(x, y) {
+            return {
+                x: (x - offsetX) / scale,
+                y: (y - offsetY) / scale
+            };
+        }
+
+        // 4. 绘图引擎（合并修正版）
+        function draw() {
+            // 重置坐标系并清空
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 应用当前视图的平移和缩放
+            ctx.translate(offsetX, offsetY);
+            ctx.scale(scale, scale);
+
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+
+            strokes.forEach(stroke => {
+                if (stroke.points.length < 2) return;
+
+                ctx.beginPath();
+
+                // 【关键：根据记录的 tool 类型切换合成模式】
+                if (stroke.tool === "eraser") {
+                    // destination-out 会擦除（使图像变透明）
+                    ctx.globalCompositeOperation = "destination-out";
+                    ctx.lineWidth = stroke.size * 2; // 橡皮可以稍微设粗一点
+                } else {
+                    // source-over 是默认绘画模式
+                    ctx.globalCompositeOperation = "source-over";
+                    ctx.strokeStyle = stroke.color;
+                    ctx.lineWidth = stroke.size;
+                }
+
+                ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+                for (let i = 1; i < stroke.points.length; i++) {
+                    ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+                }
+                ctx.stroke();
+
+                // 重要：每画完一笔必须恢复默认模式，否则会影响后续绘制
+                ctx.globalCompositeOperation = "source-over";
+            });
+        }
+
+        // 5. 交互逻辑
+        let isDrawing = false;
+        let isPanning = false;
+        let lastX = 0, lastY = 0;
+
+        canvas.addEventListener("contextmenu", e => e.preventDefault());
+
+        canvas.addEventListener("pointerdown", (e) => {
+            canvas.setPointerCapture(e.pointerId);
+            lastX = e.clientX;
+            lastY = e.clientY;
+
+            if (e.button === 2 || e.shiftKey) {
+                isPanning = true;
+            } else {
+                isDrawing = true;
+                const pos = screenToWorld(e.clientX, e.clientY);
+
+                // 【核心：在创建每一笔时，把当前的工具 tool 存进去】
+                currentStroke = {
+                    points: [pos],
+                    color: currentColor,
+                    size: currentSize / scale,
+                    tool: currentTool // 保存这一笔是画笔还是橡皮
+                };
+                strokes.push(currentStroke);
+            }
+        });
+
+        canvas.addEventListener("pointermove", (e) => {
+            if (isDrawing && currentStroke) {
+                const pos = screenToWorld(e.clientX, e.clientY);
+                currentStroke.points.push(pos);
+                draw();
+            } else if (isPanning) {
+                offsetX += e.clientX - lastX;
+                offsetY += e.clientY - lastY;
+                draw();
+            }
+            lastX = e.clientX;
+            lastY = e.clientY;
+        });
+
+        canvas.addEventListener("pointerup", (e) => {
+            isDrawing = false;
+            isPanning = false;
+            currentStroke = null;
+            canvas.releasePointerCapture(e.pointerId);
+        });
+
+        canvas.addEventListener("wheel", (e) => {
+            e.preventDefault();
+            const delta = -e.deltaY;
+            const factor = Math.pow(1.1, delta / 100);
+
+            scale *= factor;
+            scale = Math.min(Math.max(0.1, scale), 10);
+
+            draw();
+        }, { passive: false });
+
+        // 初始化调用
+        resize();
+    </script>
+</body>
+</html>
