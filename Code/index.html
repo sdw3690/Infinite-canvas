@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -36,13 +36,17 @@
             gap: 10px;
             font-family: sans-serif;
             user-select: none;
+            <div id="toolbar">
+    <button id="clearBtn" style="margin-top: 10px; padding: 8px; cursor: pointer; background: #ff4d4d; color: white; border: none; border-radius: 6px;">
+        清空画布 🗑️
+    </button>
+</div>
         }
     </style>
 </head>
 <body>
 
     <canvas id="canvas"></canvas>
-
     <div id="toolbar">
         <label>模式:</label>
         <select id="toolSelect">
@@ -58,6 +62,10 @@
 
         <hr>
         <small style="color: #666">右键: 平移画布</small>
+        <button id="clearBtn" style="margin-top: 10px; padding: 8px; cursor: pointer; background: #ff4d4d; color: white; border: none; border-radius: 6px;">
+            清空画布 🗑️
+        </button>
+        <button id="undoBtn" style="padding: 8px; cursor: pointer;">撤销 ↩️</button>
     </div>
 
     <script>
@@ -72,7 +80,10 @@
 
         let currentColor = "#000000";
         let currentSize = 2;
-        let currentTool = "brush"; // 【新增：记录当前选择的工具】
+        let currentTool = "brush"; // 【记录当前选择的工具】
+        let mouseScreenX = 0; // 记录鼠标在屏幕上的原始X
+        let mouseScreenY = 0; // 记录鼠标在屏幕上的原始Y
+
 
         // 1. 适配屏幕大小
         function resize() {
@@ -85,8 +96,31 @@
         // 2. 工具栏监听
         document.getElementById("colorPicker").oninput = (e) => currentColor = e.target.value;
         document.getElementById("sizeSlider").oninput = (e) => currentSize = parseInt(e.target.value);
-        // 【新增：监听工具切换】
-        document.getElementById("toolSelect").onchange = (e) => currentTool = e.target.value;
+        document.getElementById("toolSelect").onchange = (e) => {
+            currentTool = e.target.value;
+            canvas.style.cursor = (currentTool === "eraser") ? "none" : "crosshair";
+        };
+        // 监听清空按钮
+        document.getElementById("clearBtn").onclick = () => {
+            // 弹出确认框（可选，防止误点）
+            if (confirm("确定要清空所有笔记吗？")) {
+                strokes = []; // 1. 清空存储所有笔迹的数组
+                draw();       // 2. 重新调用绘图函数（因为数组空了，clearRect 会清空整个屏幕）
+            }
+        };
+        document.getElementById("undoBtn").onclick = () => {
+            strokes.pop(); // 移除数组中最后一项（最后一笔）
+            draw();        // 重新渲染
+        };
+
+        // 进阶：监听键盘 Ctrl+Z
+        window.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'z') {
+                strokes.pop();
+                draw();
+            }
+        });
+
 
         // 3. 坐标转换
         function screenToWorld(x, y) {
@@ -98,29 +132,26 @@
 
         // 4. 绘图引擎（合并修正版）
         function draw() {
-            // 重置坐标系并清空
+            // 1. 重置坐标系并清空
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // 应用当前视图的平移和缩放
+            // 2. 应用当前视图的平移和缩放
             ctx.translate(offsetX, offsetY);
             ctx.scale(scale, scale);
 
             ctx.lineCap = "round";
             ctx.lineJoin = "round";
 
+            // 3. 【循环开始】只负责画历史笔迹
             strokes.forEach(stroke => {
                 if (stroke.points.length < 2) return;
 
                 ctx.beginPath();
-
-                // 【关键：根据记录的 tool 类型切换合成模式】
                 if (stroke.tool === "eraser") {
-                    // destination-out 会擦除（使图像变透明）
                     ctx.globalCompositeOperation = "destination-out";
-                    ctx.lineWidth = stroke.size * 2; // 橡皮可以稍微设粗一点
+                    ctx.lineWidth = stroke.size * 2;
                 } else {
-                    // source-over 是默认绘画模式
                     ctx.globalCompositeOperation = "source-over";
                     ctx.strokeStyle = stroke.color;
                     ctx.lineWidth = stroke.size;
@@ -132,9 +163,25 @@
                 }
                 ctx.stroke();
 
-                // 重要：每画完一笔必须恢复默认模式，否则会影响后续绘制
+                // 每一笔画完重置模式
                 ctx.globalCompositeOperation = "source-over";
-            });
+            }); // <--- 【循环在这里结束】
+
+            // 4. 【循环外面】单独处理橡皮擦预览圆
+            if (currentTool === "eraser") {
+                // 只有在这里重置坐标系才是安全的
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+                ctx.beginPath();
+                // 半径直接用 currentSize 即可（对应上面 size * 2 的直径）
+                ctx.arc(mouseScreenX, mouseScreenY, currentSize, 0, Math.PI * 2);
+
+                ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
         }
 
         // 5. 交互逻辑
@@ -167,6 +214,9 @@
         });
 
         canvas.addEventListener("pointermove", (e) => {
+            mouseScreenX = e.clientX;
+            mouseScreenY = e.clientY;
+
             if (isDrawing && currentStroke) {
                 const pos = screenToWorld(e.clientX, e.clientY);
                 currentStroke.points.push(pos);
@@ -175,7 +225,10 @@
                 offsetX += e.clientX - lastX;
                 offsetY += e.clientY - lastY;
                 draw();
+            } else {
+                if (currentTool === "eraser") draw();
             }
+
             lastX = e.clientX;
             lastY = e.clientY;
         });
