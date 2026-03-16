@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## v1.1 – 2026-03
+## v0.11 – 2026-03
 
 Added:
 - Eraser tool
@@ -15,7 +15,7 @@ Improved:
 
 ---
 
-## v1.0 – 2026-03
+## v0.10 – 2026-03
 
 Initial release.
 
